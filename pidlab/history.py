@@ -48,21 +48,26 @@ class PidHistoryStore:
             values = payload.get("snapshots", [])
             loaded = []
             for value in values:
-                snapshot = PidSnapshot(
-                    identifier=str(value["identifier"]),
-                    timestamp=str(value["timestamp"]),
-                    kp=float(value["kp"]),
-                    ki=float(value["ki"]),
-                    kd=float(value["kd"]),
-                    n=float(value["n"]),
-                    source=str(value.get("source", "历史版本")),
-                    metrics={
+                try:
+                    metrics = {
                         str(key): float(metric)
                         for key, metric in value.get("metrics", {}).items()
                         if math.isfinite(float(metric))
-                    },
-                    note=str(value.get("note", "")),
-                )
+                    }
+                    snapshot = PidSnapshot(
+                        identifier=str(value["identifier"]),
+                        timestamp=str(value["timestamp"]),
+                        kp=float(value["kp"]),
+                        ki=float(value["ki"]),
+                        kd=float(value["kd"]),
+                        n=float(value["n"]),
+                        source=str(value.get("source", "历史版本")),
+                        metrics=metrics,
+                        note=str(value.get("note", "")),
+                    )
+                except (KeyError, TypeError, ValueError):
+                    # Ignore one malformed entry while preserving healthy history.
+                    continue
                 if all(math.isfinite(v) for v in snapshot.parameters.values()):
                     loaded.append(snapshot)
             self.snapshots = loaded[-self.max_entries :]
@@ -158,4 +163,3 @@ class PidHistoryStore:
     @property
     def latest(self) -> PidSnapshot | None:
         return self.snapshots[-1] if self.snapshots else None
-

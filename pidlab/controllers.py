@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Iterable, Mapping
 
 
@@ -35,7 +36,7 @@ class ControllerSchema:
     description: str
     parameters: tuple[ParameterSpec, ...]
 
-    @property
+    @cached_property
     def parameter_map(self) -> dict[str, ParameterSpec]:
         return {spec.key: spec for spec in self.parameters}
 

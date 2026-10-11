@@ -61,18 +61,40 @@ class SerialTransport:
             self._serial.flush()
 
     def _read_loop(self) -> None:
+        buffer = bytearray()
+        discarding = False
         while self._running.is_set():
             try:
                 current = self._serial
                 if current is None:
                     return
-                line = current.read_until(b"\n", size=16384)
-                if line:
-                    if not line.endswith(b"\n") and len(line) >= 16384:
-                        current.reset_input_buffer()
-                        raise ValueError("incoming serial message exceeds 16384 bytes")
-                    self.on_message(decode_message(line))
-            except (serial.SerialException, UnicodeError, ValueError) as exc:
+                # A timeout may return only part of a frame, including part of
+                # a UTF-8 character. Decode only after receiving the newline.
+                chunk = current.read_until(b"\n", size=16384)
+                if not chunk:
+                    continue
+                complete = chunk.endswith(b"\n")
+                if discarding:
+                    if complete:
+                        discarding = False
+                    continue
+                buffer.extend(chunk)
+                if len(buffer) > 16384 or (len(buffer) == 16384 and not complete):
+                    buffer.clear()
+                    discarding = not complete
+                    self.on_error("incoming serial message exceeds 16384 bytes")
+                    continue
+                if complete:
+                    line = bytes(buffer)
+                    buffer.clear()
+                    if line.strip():
+                        self.on_message(decode_message(line))
+            except serial.SerialException as exc:
+                if self._running.is_set():
+                    self.on_error(str(exc))
+                self._running.clear()
+                return
+            except (UnicodeError, ValueError) as exc:
                 if self._running.is_set():
                     self.on_error(str(exc))
         self._running.clear()

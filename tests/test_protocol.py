@@ -32,6 +32,24 @@ class ProtocolTests(unittest.TestCase):
         value = parse_sample({"type": "sample", "t": 1, "u": 2, "y": 3, "setpoint": 4})
         self.assertEqual((value.t, value.u, value.y, value.setpoint), (1, 2, 3, 4))
 
+    def test_compact_sample_preserves_values(self):
+        original = {"type": "sample", "t": 0.02, "u": -2.5, "y": 12.4, "setpoint": 20.0}
+        compact = {"type": "s", "v": [0.02, -2.5, 12.4, 20.0]}
+        self.assertEqual(parse_sample(original), parse_sample(decode_message(encode_message(compact))))
+        self.assertIsNone(parse_sample({"type": "s", "v": [0, 1, 2]}).setpoint)
+
+    def test_sample_rejects_invalid_shape_and_nonfinite_values(self):
+        invalid = [
+            {"type": "s", "v": [1, 2]},
+            {"type": "s", "v": "1234"},
+            {"type": "s", "v": [0, float("nan"), 1]},
+            {"type": "sample", "t": 0, "u": 1, "y": float("inf")},
+            {"type": "s", "v": [0, 1, 2, float("inf")]},
+        ]
+        for message in invalid:
+            with self.subTest(message=message), self.assertRaises(ValueError):
+                parse_sample(message)
+
     def test_simulator_responds(self):
         plant = PlantSimulator(noise=0)
         values = [plant.step(1, 0.01) for _ in range(500)]

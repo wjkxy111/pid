@@ -247,6 +247,17 @@ FOPDT 适合多数电机速度环的初始整定；强非线性、明显摩擦�
 `get_pid`/`set_pid` 和两阶段闭环验证；复杂控制器固件仍须按协议文档自行实现
 `set_controller` 的参数白名单、范围校验和原子更新。
 
+## 降低串口负载
+
+支持紧凑采样格式的固件在握手中声明 `sample_formats: ["json", "compact"]` 后，
+本程序会自动请求紧凑格式 `{"type":"s","v":[t,u,y,setpoint]}`，省去逐点重复的
+字段名和事务 ID，保留采样频率和精度。参考 Arduino 固件已支持该格式；原有固件
+仍使用完整 JSON 格式。ACK/结束事件的事务 ID 保留，CSV 和分析流程使用相同数据。
+串口接收支持跨超时的分段消息、UTF-8 分段和超长帧恢复。
+详细格式与负载计算见 `docs/device_protocol.md`。
+
+开发验证使用 `python -m unittest discover -s tests -q`，无需 pytest。
+
 ## GitHub 架构参考
 
 - [System_Identification](https://github.com/Skylark0924/System_Identification)：MATLAB 系统辨识，以及速度环优先、位置环随后整定的串级思路。

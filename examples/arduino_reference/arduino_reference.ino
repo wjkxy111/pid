@@ -8,6 +8,7 @@ float kp = 0.0f, ki = 0.0f, kd = 0.0f, filterN = 0.0f;
 float sampleTime = 0.02f, amplitude = 1.0f, durationSeconds = 8.0f;
 unsigned long experimentStartMs = 0, lastSampleUs = 0;
 bool experimentRunning = false;
+bool compactSamples = false;
 bool validationRunning = false, validationAwaitingDecision = false;
 String signalName = "step";
 String experimentRequestId = "", validationRequestId = "";
@@ -83,7 +84,8 @@ void reportPidState(const String &requestId = "") {
 
 void reportCapabilities(const String &requestId) {
   Serial.print(F("{\"type\":\"capabilities\",\"device_id\":\"pidlab-arduino-reference\","));
-  Serial.print(F("\"device_name\":\"PID Lab Arduino Reference\",\"firmware_version\":\"1.1.0\","));
+  Serial.print(F("\"device_name\":\"PID Lab Arduino Reference\",\"firmware_version\":\"1.2.0\","));
+  Serial.print(F("\"sample_formats\":[\"json\",\"compact\"],"));
   Serial.print(F("\"protocol_version\":2,\"supported_commands\":[\"hello\",\"start\",\"stop\","));
   Serial.print(F("\"get_pid\",\"set_pid\",\"validate_pid\",\"accept_pid\",\"abort_validation\"],"));
   Serial.print(F("\"units\":{\"input\":\"device-u\",\"output\":\"device-y\",\"setpoint\":\"device-y\"},"));
@@ -139,6 +141,7 @@ void handleCommand(const String &line) {
       && isfinite(sampleTime) && sampleTime >= 0.001f && sampleTime <= 1.0f
       && isfinite(durationSeconds) && durationSeconds > 0.0f && durationSeconds <= 120.0f;
     experimentRequestId = experimentRunning ? requestId : "";
+    compactSamples = stringField(line, "sample_format", "json") == "compact";
     acknowledge("start", experimentRunning, requestId);
   } else if (type == "validate_pid") {
     float requestedSetpoint = numberField(line, "setpoint", 0.0f);
@@ -157,6 +160,7 @@ void handleCommand(const String &line) {
       && isfinite(requestedLimit) && requestedLimit > 0.0f && requestedLimit <= DEVICE_ACTUATOR_LIMIT
       && validPid(nextRollbackKp, nextRollbackKi, nextRollbackKd, nextRollbackN);
     if (valid) {
+      compactSamples = stringField(line, "sample_format", "json") == "compact";
       validationSetpoint = requestedSetpoint;
       durationSeconds = requestedDuration;
       sampleTime = requestedSampleTime;
@@ -232,6 +236,25 @@ void setup() {
   Serial.println(F("{\"type\":\"status\",\"message\":\"device ready\"}"));
 }
 
+void reportSample(float t, float u, float y, float reference, const String &requestId) {
+  if (compactSamples) {
+    // Same values and precision, without repeated names/session IDs.
+    // Commands and completion events still carry their request IDs.
+    Serial.print(F("{\"type\":\"s\",\"v\":[")); Serial.print(t, 6);
+    Serial.print(','); Serial.print(u, 6);
+    Serial.print(','); Serial.print(y, 6);
+    Serial.print(','); Serial.print(reference, 6);
+    Serial.println(F("]}"));
+  } else {
+    Serial.print(F("{\"type\":\"sample\",\"t\":")); Serial.print(t, 6);
+    Serial.print(F(",\"u\":")); Serial.print(u, 6);
+    Serial.print(F(",\"y\":")); Serial.print(y, 6);
+    Serial.print(F(",\"setpoint\":")); Serial.print(reference, 6);
+    printRequestId(requestId);
+    Serial.println('}');
+  }
+}
+
 void loop() {
   if (Serial.available()) {
     String line = Serial.readStringUntil('\n');
@@ -296,22 +319,12 @@ void loop() {
       }
     }
     writeActuator(control);
-    Serial.print(F("{\"type\":\"sample\",\"t\":")); Serial.print(t, 6);
-    Serial.print(F(",\"u\":")); Serial.print(control, 6);
-    Serial.print(F(",\"y\":")); Serial.print(y, 6);
-    Serial.print(F(",\"setpoint\":")); Serial.print(reference, 6);
-    printRequestId(validationRequestId);
-    Serial.println('}');
+    reportSample(t, control, y, reference, validationRequestId);
     return;
   }
 
   float u = excitationAt(t);
   writeActuator(u);
   float y = readPlantOutput();
-  Serial.print(F("{\"type\":\"sample\",\"t\":")); Serial.print(t, 6);
-  Serial.print(F(",\"u\":")); Serial.print(u, 6);
-  Serial.print(F(",\"y\":")); Serial.print(y, 6);
-  Serial.print(F(",\"setpoint\":")); Serial.print(u, 6);
-  printRequestId(experimentRequestId);
-  Serial.println('}');
+  reportSample(t, u, y, u, experimentRequestId);
 }

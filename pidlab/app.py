@@ -88,6 +88,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.request_tracker = RequestTracker()
         self.active_device_profile: DeviceProfile | None = None
         self.compatibility_mode = False
+        self._compact_samples = False
         self._handshake_request_id: str | None = None
         self._experiment_request_id: str | None = None
         self._validation_request_id: str | None = None
@@ -1335,6 +1336,8 @@ class MainWindow(QtWidgets.QMainWindow):
             command, expected_type=expected_type, timeout=timeout
         )
         try:
+            if command in {"start", "validate_pid"} and self._compact_samples:
+                message = {**message, "sample_format": "compact"}
             self.transport.send(add_request_id(message, pending.request_id))
         except Exception:
             self.request_tracker.cancel(pending.request_id)
@@ -1343,6 +1346,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _begin_device_handshake(self) -> None:
         self.compatibility_mode = False
+        self._compact_samples = False
         self.active_device_profile = None
         self._show_device_profile(None)
         self._handshake_request_id = self._send_command(
@@ -1354,6 +1358,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _activate_capabilities(self, message: dict) -> None:
         capabilities = parse_capabilities(message)
+        formats = message.get("sample_formats", [])
+        self._compact_samples = isinstance(formats, list) and "compact" in formats
         profile = self.device_profiles.upsert_capabilities(
             capabilities, int(self.baud.currentText())
         )
@@ -1407,6 +1413,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._experiment_request_id = None
             self._validation_request_id = None
             self.compatibility_mode = False
+            self._compact_samples = False
             self.active_device_profile = None
             self._reset_profile_controls()
             self._select_saved_device_profile()
@@ -1999,7 +2006,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     self.status.setText("已忽略无匹配请求的设备能力消息")
                 else:
                     self._activate_capabilities(message)
-            elif message_type == "sample":
+            elif message_type in {"sample", "s"}:
                 sample = parse_sample(message)
                 self.samples.append(sample)
                 self._monitor_validation_sample(sample)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 from dataclasses import dataclass
 from uuid import uuid4
@@ -126,11 +127,21 @@ def decode_message(line: bytes | str) -> dict:
 
 
 def parse_sample(message: dict) -> Sample:
-    if message.get("type") != "sample":
+    if message.get("type") == "s":
+        values = message.get("v")
+        if not isinstance(values, list) or len(values) not in (3, 4):
+            raise ValueError("compact sample requires [t,u,y] or [t,u,y,setpoint]")
+        message = dict(zip(("t", "u", "y", "setpoint"), values))
+    elif message.get("type") != "sample":
         raise ValueError("not a sample message")
-    return Sample(
+    sample = Sample(
         t=float(message["t"]),
         u=float(message["u"]),
         y=float(message["y"]),
         setpoint=float(message["setpoint"]) if message.get("setpoint") is not None else None,
     )
+    if not all(math.isfinite(value) for value in (sample.t, sample.u, sample.y)):
+        raise ValueError("sample contains NaN or infinity")
+    if sample.setpoint is not None and not math.isfinite(sample.setpoint):
+        raise ValueError("sample setpoint contains NaN or infinity")
+    return sample
